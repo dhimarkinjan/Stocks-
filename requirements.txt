@@ -1,6 +1,8 @@
 streamlit
 pandas
 numpy
+matplotlib
 requests
 beautifulsoup4
 lxml
+jugaad-data

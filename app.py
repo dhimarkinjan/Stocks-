@@ -31,7 +31,7 @@ with col1:
 with col2:
     if st.button("Load NIFTY50 preset"):
         symbols_input = ",".join(NIFTY50)
-        st.experimental_rerun()
+        st.rerun()
 
 symbols = [s.strip().upper() for s in symbols_input.split(",") if s.strip()]
 max_symbols = st.sidebar.number_input("Max symbols to process (to avoid slow scraping)", min_value=1, max_value=50, value=6, step=1)

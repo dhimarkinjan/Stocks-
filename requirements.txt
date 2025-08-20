@@ -1,8 +1,5 @@
 streamlit
-pandas
-numpy
-matplotlib
 requests
 beautifulsoup4
+pandas
 lxml
-jugaad-data

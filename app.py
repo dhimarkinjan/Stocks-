@@ -27,7 +27,7 @@ with col2:
             "TATASTEEL.NS","HDFCLIFE.NS","GRASIM.NS","CIPLA.NS","ADANIENT.NS","M&M.NS","BPCL.NS","HEROMOTOCO.NS",
             "HINDZINC.NS","DIVISLAB.NS","BRITANNIA.NS","DRREDDY.NS","BAJAJ-AUTO.NS","EICHERMOT.NS","SHREECEM.NS","SBILIFE.NS"
         ])
-        st.experimental_rerun()
+        st.rerun()
 
 symbols = [s.strip().upper() for s in symbols_input.split(",") if s.strip()]
 

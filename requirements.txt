@@ -1,4 +1,4 @@
 streamlit
 yfinance
-nsepython==1.5
+nsepython
 pandas

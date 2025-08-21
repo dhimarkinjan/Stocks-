@@ -1,5 +1,6 @@
 streamlit
 yfinance
-nsetools
 pandas
 requests
+beautifulsoup4
+nsetools

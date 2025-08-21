@@ -62,17 +62,26 @@ def stock_checklist(symbol):
         "PE Ratio": ("trailingPE", lambda x: 8 <= x <= 25, "8 – 25"),
         "PB Ratio": ("priceToBook", lambda x: x <= 5, "0 – 5"),
         "EPS": ("trailingEps", lambda x: x > 0, "> 0"),
-        "50DMA": ("fiftyDayAverage", lambda x: price > x if price and x else False, "Price > 50DMA"),
-        "200DMA": ("twoHundredDayAverage", lambda x: price > x if price and x else False, "Price > 200DMA"),
+
+        # New Combined DMA rule
+        "50DMA > 200DMA": (
+            ("fiftyDayAverage", "twoHundredDayAverage"),
+            lambda x: x[0] and x[1] and x[0] > x[1],
+            "50DMA > 200DMA"
+        ),
+
         "ROE (%)": ("returnOnEquity", lambda x: x*100 >= 12 if x else False, "> 12%"),
         "ROA (%)": ("returnOnAssets", lambda x: x*100 >= 8 if x else False, "> 8%"),
         "Revenue Growth (5Y %)": ("revenueGrowth", lambda x: x*100 >= 8 if x else False, "> 8%"),
         "Profit Growth (YoY %)": ("earningsGrowth", lambda x: x*100 >= 10 if x else False, "> 10%"),
         "PEG Ratio": ("pegRatio", lambda x: x <= 1.5, "< 1.5"),
-        "Dividend Yield (%)": ("dividendYield", lambda x: x*100 >= 1 if x else False, "> 1%"),
-        "Debt/Equity": ("Debt/Equity", lambda x: x < 1, "< 1"),  # from Screener
+
+        # Fixed Dividend Yield
+        "Dividend Yield (%)": ("dividendYield", lambda x: (x*100) >= 1 if x else False, "> 1%"),
+
+        "Debt/Equity": ("Debt/Equity", lambda x: x < 1, "< 1"),
         "Market Cap (Cr)": ("marketCap", lambda x: x/1e7 >= 500 if x else False, "> 500 Cr"),
-        "ROCE (%)": ("ROCE", lambda x: x >= 12, "> 12%"),  # from Screener
+        "ROCE (%)": ("ROCE", lambda x: x >= 12, "> 12%"),  
         "Promoter Holding (%)": ("Promoter Holding", lambda x: x >= 50, "> 50%"),
         "Pledge (%)": ("Pledge", lambda x: x < 5, "< 5%"),
         "FII Holding (%)": ("FII", lambda x: x >= 15, "> 15%"),
@@ -86,11 +95,29 @@ def stock_checklist(symbol):
     for metric, (key, rule, healthy_range) in rules.items():
         value, ok, compare = None, "❓ NA", ""
 
+        # Special Case: DMA Comparison
+        if metric == "50DMA > 200DMA":
+            f50 = info.get("fiftyDayAverage")
+            f200 = info.get("twoHundredDayAverage")
+            if f50 and f200:
+                ok = "✅ True" if rule((f50, f200)) else "❌ False"
+                value = f"{round(f50,2)} vs {round(f200,2)}"
+
+        # Special Case: Dividend Yield
+        elif metric == "Dividend Yield (%)":
+            val = info.get(key, None)
+            if val is not None:
+                percent_val = round(val*100, 2)
+                ok = "✅ True" if rule(val) else "❌ False"
+                value = percent_val
+
         # Screener values first priority
-        if metric in screener_data:
+        elif metric in screener_data:
             value = screener_data.get(metric)
             if value is not None:
                 ok = "✅ True" if rule(value) else "❌ False"
+
+        # Yahoo values
         else:
             val = info.get(key, None)
             if val is not None and rule is not None:

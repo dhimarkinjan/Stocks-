@@ -5,19 +5,24 @@ import requests
 from bs4 import BeautifulSoup
 
 # ----------------------------
-# Screener scraping function
+# Screener scraping function (Fixed)
 # ----------------------------
 def get_screener_data(symbol):
     try:
-        url = f"https://www.screener.in/company/{symbol}/"
-        headers = {"User-Agent": "Mozilla/5.0"}
+        url = f"https://www.screener.in/company/{symbol}/consolidated/"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                          "AppleWebKit/537.36 (KHTML, like Gecko) "
+                          "Chrome/119.0.0.0 Safari/537.36",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
         page = requests.get(url, headers=headers, timeout=15)
         soup = BeautifulSoup(page.text, "html.parser")
 
         data = {}
 
         # Debt to Equity
-        de = soup.find("li", string=lambda t: t and "Debt to equity" in t)
+        de = soup.find("li", text=lambda t: t and "Debt to equity" in t)
         if de:
             try:
                 data["Debt/Equity"] = float(de.text.split(":")[-1].strip())
@@ -25,47 +30,44 @@ def get_screener_data(symbol):
                 pass
 
         # ROCE
-        roce = soup.find("li", string=lambda t: t and "ROCE" in t)
-        if roce:
+        roce_el = soup.find("li", text=lambda t: t and "ROCE" in t)
+        if roce_el:
             try:
-                data["ROCE"] = float(roce.text.split(":")[-1].strip().replace("%", ""))
+                data["ROCE"] = float(roce_el.text.split(":")[-1].replace("%", "").strip())
             except:
                 pass
 
-        # Promoter holding
-        promoter = soup.find("td", string="Promoters")
-        if promoter and promoter.find_next("td"):
-            try:
-                data["Promoter Holding"] = float(promoter.find_next("td").text.replace("%", ""))
-            except:
-                pass
-
-        # Pledge %
-        pledge = soup.find("td", string="Pledged")
-        if pledge and pledge.find_next("td"):
-            try:
-                data["Pledge"] = float(pledge.find_next("td").text.replace("%", ""))
-            except:
-                pass
-
-        # FII
-        fii = soup.find("td", string="FIIs")
-        if fii and fii.find_next("td"):
-            try:
-                data["FII"] = float(fii.find_next("td").text.replace("%", ""))
-            except:
-                pass
-
-        # DII
-        dii = soup.find("td", string="DIIs")
-        if dii and dii.find_next("td"):
-            try:
-                data["DII"] = float(dii.find_next("td").text.replace("%", ""))
-            except:
-                pass
+        # Shareholding table parsing
+        sh_table = soup.find("section", {"id": "shareholding"})
+        if sh_table:
+            rows = sh_table.find_all("tr")
+            for row in rows:
+                cols = [c.get_text(strip=True) for c in row.find_all("td")]
+                if len(cols) >= 2:
+                    if cols[0].startswith("Promoters"):
+                        try:
+                            data["Promoter Holding"] = float(cols[1].replace("%", ""))
+                        except:
+                            pass
+                    elif cols[0].startswith("Pledged"):
+                        try:
+                            data["Pledge"] = float(cols[1].replace("%", ""))
+                        except:
+                            pass
+                    elif cols[0].startswith("FIIs"):
+                        try:
+                            data["FII"] = float(cols[1].replace("%", ""))
+                        except:
+                            pass
+                    elif cols[0].startswith("DIIs"):
+                        try:
+                            data["DII"] = float(cols[1].replace("%", ""))
+                        except:
+                            pass
 
         return data
-    except:
+    except Exception as e:
+        print("Error in screener fetch:", e)
         return {}
 
 # ----------------------------
@@ -174,7 +176,6 @@ def stock_checklist(symbol):
             val = screener_data.get(metric)
             if val is not None:
                 ok = "✅ True" if rule and rule(val) else "❌ False"
-                # Screener values are already in percent for these fields
                 value = round(val, 2)
 
         # ---- Yahoo values
@@ -182,7 +183,6 @@ def stock_checklist(symbol):
             val = info.get(key, None)
             if val is not None and rule is not None:
                 ok = "✅ True" if rule(val) else "❌ False"
-                # Show percentage metrics in %
                 if metric in PERCENT_METRICS:
                     value = round(val * 100, 2)
                 else:

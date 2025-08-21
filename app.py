@@ -1,58 +1,78 @@
-import streamlit as st
 import yfinance as yf
-import pandas as pd
+from nsepython import nse_eq_quote_ltp
 
-# -----------------------------
-# Streamlit App Title
-# -----------------------------
-st.title("📊 Stock Screener (NSE)")
+def stock_checklist(symbol):
+    data = {}
 
-# Input box for NSE stock symbol
-ticker = st.text_input("Enter NSE Symbol (e.g., RELIANCE.NS, TCS.NS, HDFCBANK.NS):", "RELIANCE.NS")
+    # Yahoo Finance data
+    stock = yf.Ticker(symbol)
+    info = stock.info
 
-if ticker:
+    # NSE price (Live)
     try:
-        # Fetch stock data
-        stock = yf.Ticker(ticker)
+        nse_data = nse_eq_quote_ltp(symbol.replace(".NS", ""))
+        data["Live Price"] = nse_data["priceInfo"]["lastPrice"]
+    except:
+        data["Live Price"] = "NA"
 
-        # Financial info
-        eps = stock.info.get("trailingEps")
-        pe_ratio = stock.info.get("trailingPE")
-        pb_ratio = stock.info.get("priceToBook")
-        div_yield = stock.info.get("dividendYield")
-        roe = stock.info.get("returnOnEquity")
-        de_ratio = stock.info.get("debtToEquity")
+    # PE Ratio
+    pe = info.get("trailingPE")
+    data["PE"] = f"{pe:.2f}" if pe else "NA"
 
-        # Historical prices for DMA & volume trend
-        hist = stock.history(period="1y")
-        hist["50dma"] = hist["Close"].rolling(50).mean()
-        hist["200dma"] = hist["Close"].rolling(200).mean()
-        dma_signal = hist["50dma"].iloc[-1] > hist["200dma"].iloc[-1]
-        volume_trend = hist["Volume"].iloc[-1] > hist["Volume"].rolling(20).mean().iloc[-1]
+    # PB Ratio
+    pb = info.get("priceToBook")
+    data["PB"] = f"{pb:.2f}" if pb else "NA"
 
-        # Screening rules
-        checks = []
+    # EPS
+    eps = info.get("trailingEps")
+    data["EPS"] = f"{eps:.2f}" if eps else "NA"
 
-        def verdict(param, value, condition, why):
-            ok = "✅" if condition else "❌"
-            checks.append([param, value, ok, why])
+    # Dividend Yield
+    dy = info.get("dividendYield")
+    data["Dividend Yield"] = f"{dy*100:.2f}%" if dy else "NA"
 
-        verdict("EPS (TTM)", eps, eps and eps > 0, "EPS should be positive")
-        verdict("P/E", pe_ratio, True, "Compare P/E with industry average")
-        verdict("P/B", pb_ratio, pb_ratio and pb_ratio < 3, "P/B < 3 is healthy")
-        verdict("Dividend Yield", div_yield, div_yield and div_yield > 0.02, "Dividend yield >2% preferred")
-        verdict("ROE", roe, roe and roe > 0.15, "ROE >15% preferred")
-        verdict("Debt/Equity", de_ratio, de_ratio and de_ratio < 1, "D/E <1 preferred")
-        verdict("50DMA > 200DMA", dma_signal, dma_signal, "Golden cross bullish")
-        verdict("Volume Trend", volume_trend, volume_trend, "Volume should trend up")
+    # Debt / Equity (approx using totalDebt / totalAssets)
+    debt = info.get("totalDebt")
+    assets = info.get("totalAssets")
+    if debt and assets:
+        de = debt / assets
+        data["Debt/Equity"] = f"{de:.2f}"
+    else:
+        data["Debt/Equity"] = "NA"
 
-        # Convert to DataFrame
-        df = pd.DataFrame(checks, columns=["Parameter", "Value", "Verdict", "Why it matters"])
+    # ROE
+    roe = info.get("returnOnEquity")
+    data["ROE"] = f"{roe*100:.2f}%" if roe else "NA"
 
-        st.dataframe(df)
+    # ROA
+    roa = info.get("returnOnAssets")
+    data["ROA"] = f"{roa*100:.2f}%" if roa else "NA"
 
-        # Show chart
-        st.line_chart(hist[["Close", "50dma", "200dma"]])
+    # Market Cap
+    mc = info.get("marketCap")
+    data["Market Cap"] = f"{mc/1e7:.2f} Cr" if mc else "NA"
 
-    except Exception as e:
-        st.error(f"Error fetching data: {e}")
+    # 5Y Revenue CAGR (approx growth)
+    rev = info.get("revenueGrowth")
+    data["Revenue Growth"] = f"{rev*100:.2f}%" if rev else "NA"
+
+    # Profit Growth (y-o-y)
+    pg = info.get("earningsGrowth")
+    data["Profit Growth"] = f"{pg*100:.2f}%" if pg else "NA"
+
+    # PEG Ratio
+    peg = info.get("pegRatio")
+    data["PEG Ratio"] = f"{peg:.2f}" if peg else "NA"
+
+    return data
+
+
+# -----------------------
+# Example Run
+# -----------------------
+symbol = "RELIANCE.NS"
+result = stock_checklist(symbol)
+
+print(f"Checklist for {symbol}\n")
+for k, v in result.items():
+    print(f"{k}: {v}")

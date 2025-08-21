@@ -1,146 +1,61 @@
-#!/usr/bin/env python3
-"""
-Indian stocks MA/EMA screener (NSE) using yfinance.
-
-Filters for:
-  1) 50-SMA crossing ABOVE 100-SMA on the latest candle
-  2) 20-SMA > 50-SMA
-  3) 8-EMA > 20-SMA
-
-Usage examples:
-  python screen_india_ma.py --symbols RELIANCE.NS TCS.NS INFY.NS
-  python screen_india_ma.py --file tickers.txt
-  python screen_india_ma.py --recent 3 --symbols RELIANCE.NS TCS.NS
-
-Notes:
-- NSE tickers must end with ".NS" (e.g., HDFCBANK.NS).
-- Use --recent N to allow signals that happened within the last N trading days.
-"""
-
-import argparse
-from datetime import datetime, timedelta
-import sys
-from typing import List, Optional
-
+import streamlit as st
+import yfinance as yf
 import pandas as pd
 
-try:
-    import yfinance as yf
-except ImportError as e:
-    raise SystemExit("Please install dependencies:\n  pip install pandas yfinance") from e
+st.title("📊 Nifty 50 Stock Screener (Checklist Based)")
 
+# ✅ Nifty 50 stock list (Feb 2025 ke according)
+nifty50_stocks = [
+    "ADANIENT.NS","ADANIPORTS.NS","APOLLOHOSP.NS","ASIANPAINT.NS","AXISBANK.NS",
+    "BAJAJ-AUTO.NS","BAJFINANCE.NS","BAJAJFINSV.NS","BHARTIARTL.NS","BPCL.NS",
+    "BRITANNIA.NS","CIPLA.NS","COALINDIA.NS","DIVISLAB.NS","DRREDDY.NS",
+    "EICHERMOT.NS","GRASIM.NS","HCLTECH.NS","HDFC.NS","HDFCBANK.NS",
+    "HEROMOTOCO.NS","HINDALCO.NS","HINDUNILVR.NS","ICICIBANK.NS","INDUSINDBK.NS",
+    "INFY.NS","IOC.NS","ITC.NS","JSWSTEEL.NS","KOTAKBANK.NS",
+    "LT.NS","M&M.NS","MARUTI.NS","NESTLEIND.NS","NTPC.NS",
+    "ONGC.NS","POWERGRID.NS","RELIANCE.NS","SBILIFE.NS","SBIN.NS",
+    "SUNPHARMA.NS","TATACONSUM.NS","TATAMOTORS.NS","TATASTEEL.NS","TCS.NS",
+    "TECHM.NS","TITAN.NS","ULTRACEMCO.NS","UPL.NS","WIPRO.NS"
+]
 
-def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    if df.empty:
-        return df
-    close = df["Close"]
+def screen_stock(symbol):
+    try:
+        stock = yf.Ticker(symbol)
+        info = stock.info
 
-    df["SMA20"]  = close.rolling(20).mean()
-    df["SMA50"]  = close.rolling(50).mean()
-    df["SMA100"] = close.rolling(100).mean()
-    df["EMA8"]   = close.ewm(span=8, adjust=False).mean()
+        pe = info.get("trailingPE")
+        pb = info.get("priceToBook")
+        roe = (info.get("returnOnEquity") or 0) * 100 if info.get("returnOnEquity") else None
+        de = info.get("debtToEquity")
+        eps = info.get("trailingEps")
+        rev_g = (info.get("revenueGrowth") or 0) * 100 if info.get("revenueGrowth") else None
+        fcf = info.get("freeCashflow")
 
-    # Golden cross on each day
-    df["golden_cross"] = (df["SMA50"] > df["SMA100"]) & (df["SMA50"].shift(1) <= df["SMA100"].shift(1))
+        passed = (
+            (pe is not None and 0 < pe < 40) and
+            (pb is not None and pb < 5) and
+            (roe is not None and roe > 15) and
+            (de is not None and de < 100) and
+            (eps is not None and eps > 0) and
+            (rev_g is not None and rev_g > 5) and
+            (fcf is not None and fcf > 0)
+        )
 
-    # Trend filters on each day
-    df["cond_trend"] = (df["SMA20"] > df["SMA50"]) & (df["EMA8"] > df["SMA20"])
-    return df
+        status = "✅ Good" if passed else "❌ Fail"
+        return {"Stock": symbol, "Status": status, "P/E": pe, "P/B": pb, "ROE%": roe, "D/E": de, "EPS": eps, "Rev.Growth%": rev_g}
+    except Exception as e:
+        return {"Stock": symbol, "Status": "Error", "Reason": str(e)}
 
+st.subheader("Auto Screening of Nifty 50 Stocks")
 
-def fetch_history(symbol: str, period: str = "400d") -> pd.DataFrame:
-    # 400 trading days covers > 1.5 years; enough for SMA100 warmup.
-    df = yf.download(symbol, period=period, interval="1d", auto_adjust=True, progress=False)
-    # Ensure clean index
-    if not df.empty:
-        df = df.copy()
-        df.index = pd.to_datetime(df.index)
-    return df
+results = [screen_stock(s) for s in nifty50_stocks]
+df = pd.DataFrame(results)
 
+# ✅ Sirf pass hue stocks dikhaye
+passed_df = df[df["Status"] == "✅ Good"]
 
-def screen_symbol(symbol: str, recent: int = 0) -> Optional[pd.Series]:
-    """
-    Return the last row that satisfies all conditions, or None if not found.
-    recent: allow crossover within last N trading days (0 = only latest bar).
-    """
-    df = fetch_history(symbol)
-    if df.empty or len(df) < 110:
-        return None
-
-    df = compute_indicators(df)
-    if recent <= 0:
-        # Only today’s bar must have golden cross + trend conditions
-        last = df.iloc[-1]
-        if bool(last["golden_cross"]) and bool(last["cond_trend"]):
-            row = last.copy()
-            row["symbol"] = symbol
-            row["signal_date"] = df.index[-1].date()
-            return row
-        return None
-    else:
-        # Look back up to `recent` bars for golden cross; trend must also be true on that same bar
-        tail = df.tail(recent + 1)  # include today
-        hits = tail[tail["golden_cross"] & tail["cond_trend"]]
-        if hits.empty:
-            return None
-        last_hit = hits.iloc[-1].copy()
-        last_hit["symbol"] = symbol
-        last_hit["signal_date"] = hits.index[-1].date()
-        return last_hit
-
-
-def load_symbols(args) -> List[str]:
-    if args.symbols:
-        return [s if s.endswith(".NS") else f"{s}.NS" for s in args.symbols]
-    if args.file:
-        try:
-            with open(args.file, "r", encoding="utf-8") as f:
-                syms = [line.strip() for line in f if line.strip()]
-            return [s if s.endswith(".NS") else f"{s}.NS" for s in syms]
-        except Exception as e:
-            print(f"Failed to read {args.file}: {e}", file=sys.stderr)
-            sys.exit(2)
-    # Default: a small, common NSE set (edit/expand as you like)
-    return [
-        "RELIANCE.NS","TCS.NS","INFY.NS","HDFCBANK.NS","ICICIBANK.NS",
-        "ITC.NS","LT.NS","SBIN.NS","BHARTIARTL.NS","AXISBANK.NS",
-        "HINDUNILVR.NS","KOTAKBANK.NS","MARUTI.NS","SUNPHARMA.NS","ASIANPAINT.NS",
-    ]
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Indian stocks MA/EMA screener (NSE)")
-    parser.add_argument("--symbols", nargs="*", help="Space-separated NSE symbols (with or without .NS)")
-    parser.add_argument("--file", help="Path to text file with one symbol per line")
-    parser.add_argument("--recent", type=int, default=0, help="Allow signals within last N trading days (default 0 = today only)")
-    parser.add_argument("--csv", default="india_ma_screen_results.csv", help="Output CSV path")
-    args = parser.parse_args()
-
-    symbols = load_symbols(args)
-    results = []
-
-    print(f"Scanning {len(symbols)} symbols...")
-    for sym in symbols:
-        row = screen_symbol(sym, recent=args.recent)
-        if row is not None:
-            results.append(row)
-
-    if not results:
-        print("No matches found with the current filters.")
-        sys.exit(0)
-
-    out = pd.DataFrame(results)
-    cols = [
-        "symbol","signal_date","Close","SMA20","SMA50","SMA100","EMA8",
-    ]
-    # Keep available columns
-    cols = [c for c in cols if c in out.columns]
-    out = out[cols].sort_values(["signal_date","symbol"]).reset_index(drop=True)
-
-    out.to_csv(args.csv, index=False)
-    print(out.to_string(index=False))
-    print(f"\nSaved results to: {args.csv}")
-
-
-if __name__ == "__main__":
-    main()
+if not passed_df.empty:
+    st.success("✅ Passed Stocks (from Nifty 50)")
+    st.dataframe(passed_df, use_container_width=True)
+else:
+    st.warning("❌ Abhi koi bhi Nifty 50 stock checklist pass nahi kar raha.")

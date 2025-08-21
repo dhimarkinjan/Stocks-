@@ -1,61 +1,53 @@
-import streamlit as st
 import yfinance as yf
 import pandas as pd
+import pandas_ta as ta
 
-st.title("📊 Nifty 50 Stock Screener (Checklist Based)")
+# --------------------------
+# Config
+# --------------------------
+ticker = "RELIANCE.NS"   # Example NSE stock symbol
 
-# ✅ Nifty 50 stock list (Feb 2025 ke according)
-nifty50_stocks = [
-    "ADANIENT.NS","ADANIPORTS.NS","APOLLOHOSP.NS","ASIANPAINT.NS","AXISBANK.NS",
-    "BAJAJ-AUTO.NS","BAJFINANCE.NS","BAJAJFINSV.NS","BHARTIARTL.NS","BPCL.NS",
-    "BRITANNIA.NS","CIPLA.NS","COALINDIA.NS","DIVISLAB.NS","DRREDDY.NS",
-    "EICHERMOT.NS","GRASIM.NS","HCLTECH.NS","HDFC.NS","HDFCBANK.NS",
-    "HEROMOTOCO.NS","HINDALCO.NS","HINDUNILVR.NS","ICICIBANK.NS","INDUSINDBK.NS",
-    "INFY.NS","IOC.NS","ITC.NS","JSWSTEEL.NS","KOTAKBANK.NS",
-    "LT.NS","M&M.NS","MARUTI.NS","NESTLEIND.NS","NTPC.NS",
-    "ONGC.NS","POWERGRID.NS","RELIANCE.NS","SBILIFE.NS","SBIN.NS",
-    "SUNPHARMA.NS","TATACONSUM.NS","TATAMOTORS.NS","TATASTEEL.NS","TCS.NS",
-    "TECHM.NS","TITAN.NS","ULTRACEMCO.NS","UPL.NS","WIPRO.NS"
-]
+# --------------------------
+# Fetch Data
+# --------------------------
+stock = yf.Ticker(ticker)
 
-def screen_stock(symbol):
-    try:
-        stock = yf.Ticker(symbol)
-        info = stock.info
+# Financials / Ratios
+eps = stock.info.get("trailingEps")
+pe_ratio = stock.info.get("trailingPE")
+pb_ratio = stock.info.get("priceToBook")
+div_yield = stock.info.get("dividendYield")
+roe = stock.info.get("returnOnEquity")
+de_ratio = stock.info.get("debtToEquity")
 
-        pe = info.get("trailingPE")
-        pb = info.get("priceToBook")
-        roe = (info.get("returnOnEquity") or 0) * 100 if info.get("returnOnEquity") else None
-        de = info.get("debtToEquity")
-        eps = info.get("trailingEps")
-        rev_g = (info.get("revenueGrowth") or 0) * 100 if info.get("revenueGrowth") else None
-        fcf = info.get("freeCashflow")
+# Historical prices (for DMA, Volume trend)
+hist = stock.history(period="1y")
+hist["50dma"] = hist["Close"].rolling(50).mean()
+hist["200dma"] = hist["Close"].rolling(200).mean()
 
-        passed = (
-            (pe is not None and 0 < pe < 40) and
-            (pb is not None and pb < 5) and
-            (roe is not None and roe > 15) and
-            (de is not None and de < 100) and
-            (eps is not None and eps > 0) and
-            (rev_g is not None and rev_g > 5) and
-            (fcf is not None and fcf > 0)
-        )
+dma_signal = hist["50dma"].iloc[-1] > hist["200dma"].iloc[-1]
+volume_trend = hist["Volume"].iloc[-1] > hist["Volume"].rolling(20).mean().iloc[-1]
 
-        status = "✅ Good" if passed else "❌ Fail"
-        return {"Stock": symbol, "Status": status, "P/E": pe, "P/B": pb, "ROE%": roe, "D/E": de, "EPS": eps, "Rev.Growth%": rev_g}
-    except Exception as e:
-        return {"Stock": symbol, "Status": "Error", "Reason": str(e)}
+# --------------------------
+# Screening Rules
+# --------------------------
+checks = []
 
-st.subheader("Auto Screening of Nifty 50 Stocks")
+def verdict(param, value, rule, condition, why):
+    ok = "✅" if condition else "❌"
+    checks.append([param, value, ok, why])
 
-results = [screen_stock(s) for s in nifty50_stocks]
-df = pd.DataFrame(results)
+verdict("EPS (TTM)", eps, "EPS > 0", eps and eps > 0, "EPS should be positive")
+verdict("P/E", pe_ratio, "Compare with industry", True, "High P/E may mean overvaluation")
+verdict("P/B", pb_ratio, "< 3 preferred", pb_ratio and pb_ratio < 3, "P/B < 3 is healthy")
+verdict("Dividend Yield", div_yield, ">2% preferred", div_yield and div_yield > 0.02, "Dividend yield >2%")
+verdict("ROE", roe, ">15% preferred", roe and roe > 0.15, "Strong ROE >15%")
+verdict("Debt/Equity", de_ratio, "<1 preferred", de_ratio and de_ratio < 1, "D/E <1 preferred")
+verdict("50DMA > 200DMA", dma_signal, "Golden cross bullish", dma_signal, "50DMA > 200DMA indicates bullish")
+verdict("Volume Trend", volume_trend, "Rising volume", volume_trend, "Volume should trend up")
 
-# ✅ Sirf pass hue stocks dikhaye
-passed_df = df[df["Status"] == "✅ Good"]
-
-if not passed_df.empty:
-    st.success("✅ Passed Stocks (from Nifty 50)")
-    st.dataframe(passed_df, use_container_width=True)
-else:
-    st.warning("❌ Abhi koi bhi Nifty 50 stock checklist pass nahi kar raha.")
+# --------------------------
+# Output Table
+# --------------------------
+df = pd.DataFrame(checks, columns=["Parameter", "Value", "Verdict", "Why it matters"])
+print(df.to_string(index=False))

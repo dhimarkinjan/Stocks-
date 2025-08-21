@@ -2,7 +2,6 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 from nsetools import Nse
-import requests
 
 # Init NSE client
 nse = Nse()
@@ -10,18 +9,22 @@ nse = Nse()
 st.title("📊 Stock Screener (NSE + Yahoo Finance)")
 
 # User input
-symbol = st.text_input("Enter NSE Stock Symbol (e.g. RELIANCE, TCS, INFY)", "RELIANCE")
+symbol_input = st.text_input("Enter NSE Stock Symbol (e.g. RELIANCE, TCS, INFY)", "RELIANCE")
 
-if symbol:
+if symbol_input:
     try:
-        # ✅ NSE live price
-        quote = nse.get_quote(symbol)
+        # ✅ nsetools ke liye .NS nahi chahiye
+        nse_symbol = symbol_input.replace(".NS", "")
+
+        # NSE live price
+        quote = nse.get_quote(nse_symbol)
         live_price = quote["lastPrice"]
 
-        st.subheader(f"💹 {symbol} Live Price (NSE): ₹{live_price}")
+        st.subheader(f"💹 {nse_symbol} Live Price (NSE): ₹{live_price}")
 
-        # ✅ Yahoo Finance data
-        stock = yf.Ticker(symbol + ".NS")
+        # ✅ Yahoo Finance ke liye .NS lagana zaruri hai
+        yf_symbol = nse_symbol + ".NS"
+        stock = yf.Ticker(yf_symbol)
         info = stock.info
 
         # Parameters
@@ -30,8 +33,6 @@ if symbol:
             "PB Ratio": info.get("priceToBook"),
             "EPS": info.get("trailingEps"),
             "Dividend Yield": f"{info.get('dividendYield')*100:.2f}%" if info.get("dividendYield") else "NA",
-            "Debt/Equity": round(info.get("totalDebt")/info.get("totalAssets"), 2)
-                            if info.get("totalDebt") and info.get("totalAssets") else "NA",
             "ROE": f"{info.get('returnOnEquity')*100:.2f}%" if info.get("returnOnEquity") else "NA",
             "ROA": f"{info.get('returnOnAssets')*100:.2f}%" if info.get("returnOnAssets") else "NA",
             "Market Cap": f"{info.get('marketCap')/1e7:.2f} Cr" if info.get("marketCap") else "NA",
